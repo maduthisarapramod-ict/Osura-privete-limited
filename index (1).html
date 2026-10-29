@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Osura Stock Manager</title>
+<style>
+:root{--p:#4f46e5;--p2:#7c3aed;--bg:#f1f5f9;--card:#fff;--tx:#0f172a;--mu:#64748b;--ok:#16a34a;--bad:#dc2626;--bd:#e2e8f0}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx);font-size:15px}
+header{background:linear-gradient(120deg,var(--p),var(--p2));color:#fff;padding:12px 18px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+header h1{margin:0;font-size:19px;letter-spacing:.5px}
+header small{opacity:.9;display:block;font-size:12px}
+.nav{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
+.nav button{border:0;background:#eef2ff;color:var(--p);padding:8px 14px;border-radius:999px;font-weight:600;cursor:pointer}
+.nav button.on{background:var(--p);color:#fff}
+main{padding:16px;max-width:1250px;margin:0 auto}
+.card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card h2,.card h3{margin:0 0 12px}
+.grid{display:grid;gap:12px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.stat{border-radius:12px;padding:14px;color:#fff}
+.stat b{display:block;font-size:20px;margin-top:4px}
+.s1{background:linear-gradient(135deg,#0ea5e9,#2563eb)}.s2{background:linear-gradient(135deg,#f97316,#dc2626)}.s3{background:linear-gradient(135deg,#22c55e,#15803d)}.s4{background:linear-gradient(135deg,#a855f7,#6d28d9)}.s5{background:linear-gradient(135deg,#14b8a6,#0f766e)}.s6{background:linear-gradient(135deg,#64748b,#334155)}
+input,select,textarea{padding:9px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px;width:100%;background:#fff}
+input[type=number]{text-align:right}
+label{font-size:13px;color:var(--mu);font-weight:600;display:block;margin-bottom:4px}
+.btn{border:0;background:var(--p);color:#fff;padding:10px 16px;border-radius:9px;font-weight:600;cursor:pointer;font-size:14px}
+.btn.g{background:var(--ok)}.btn.r{background:var(--bad)}.btn.o{background:#fff;color:var(--p);border:1px solid var(--p)}.btn.sm{padding:5px 10px;font-size:12px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
+.row>div{flex:1;min-width:130px}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:8px 9px;border-bottom:1px solid var(--bd);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{background:#f8fafc;color:var(--mu);font-size:12px;text-transform:uppercase}
+tr.tot td{font-weight:700;background:#f8fafc}
+.dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:middle;border:1px solid #0003}
+.neg{color:var(--bad);font-weight:700}.pos{color:var(--ok);font-weight:700}
+.warn input{border-color:var(--bad);background:#fef2f2}
+.bar{height:10px;border-radius:6px;background:linear-gradient(90deg,var(--p),var(--p2));min-width:3px}
+.login{max-width:400px;margin:8vh auto;padding:0 16px}
+.tabs{display:flex;gap:8px;margin-bottom:14px}.tabs button{flex:1}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 18px;border-radius:10px;display:none;z-index:99}
+.muted{color:var(--mu);font-size:13px}
+.shopc{cursor:pointer;border:1px solid var(--bd);border-radius:12px;padding:12px;background:#fff;line-height:1.6}
+.shopc:hover{border-color:var(--p);box-shadow:0 2px 8px #4f46e526}
+.rep{border:1px dashed #cbd5e1;border-radius:10px;padding:14px;background:#fff}
+.rep h2{margin:0 0 4px}.rep h3{margin:14px 0 6px}.rep .sub{color:#475569;margin-bottom:4px}
+.stk{display:flex;flex-wrap:wrap;gap:10px}
+.stk div{flex:1;min-width:150px;border:1px solid var(--bd);border-radius:10px;padding:10px;background:#fafafa}
+.stk b{display:block;font-size:17px;margin-top:2px}
+.pq{display:flex;gap:6px}.pq input{width:78px}
+#printArea{display:none}
+@media print{
+ body{background:#fff}
+ #app,#toast{display:none!important}
+ #printArea{display:block!important;padding:10px}
+ table{font-size:12px}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="printArea"></div>
+<div id="toast"></div>
+<script>
+const SHOPS=['Walasmulla','Hakmana','Kirinda','Thihagoda','Weligama','Imaduwa','Ahangama','Rakwana','Pelmadulla','Eheliyagoda','Kamburupitiya','Kahawaththa'];
+const KEY='osura_stock_v2';
+const CO='Osura (Pvt) Ltd';
+const MIN='0000-00-00',MAX='9999-99-99';
+
+function defDB(){return{v:2,
+ settings:{pack:25,cats:[{k:'red',n:'Red',h:'#e53935',price:300},{k:'white',n:'White',h:'#bdbdbd',price:300},{k:'yellow',n:'Yellow',h:'#f9a825',price:250},{k:'green',n:'Green',h:'#2e7d32',price:350}],adminUser:'osura shop',adminPass:'Osura2026'},
+ shops:SHOPS.map((n,i)=>({id:'s'+(i+1),name:n,pin:'1234'})),
+ transfers:[],days:{}}}
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.settings&&d.settings.cats)return d}catch(e){}return defDB()}
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){alert('Could not save to browser storage. Please download a backup.')}}
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const n0=x=>Number(x||0).toLocaleString('en-US');
+const rs=x=>'Rs. '+Number(x||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const r2=x=>Math.round((x+Number.EPSILON)*100)/100;
+const today=()=>new Date().toLocaleDateString('en-CA');
+const cls=x=>x<0?'neg':'pos';
+function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',2600)}
+const dot=c=>`<span class="dot" style="background:${c.h}"></span>`;
+let DB=load();
+const C=()=>DB.settings.cats;
+const PK=()=>DB.settings.pack||25;
+const shopName=id=>(DB.shops.find(s=>s.id===id)||{}).name||id;
+const stamp=()=>'Generated: '+new Date().toLocaleString('en-GB');
+
+/* quantity helpers (everything stored in single guli) */
+function fq(n){n=Math.round(n||0);const neg=n<0;n=Math.abs(n);const p=Math.floor(n/PK()),g=n%PK(),a=[];if(p)a.push(p+' pk');if(g||!p)a.push(g+' g');return(neg?'-':'')+a.join(' ')}
+function fqL(n){n=Math.round(n||0);const neg=n<0;n=Math.abs(n);const p=Math.floor(n/PK()),g=n%PK(),a=[];if(p)a.push(p+(p>1?' packs':' pack'));if(g||!p)a.push(g+' guli');return(neg?'-':'')+a.join(' ')}
+const sumO=o=>C().reduce((s,c)=>s+(+o[c.k]||0),0);
+const zero=()=>{const o={};C().forEach(c=>o[c.k]=0);return o};
+const curPrices=()=>{const o={};C().forEach(c=>o[c.k]=+c.price||0);return o};
+
+let S=null;try{S=JSON.parse(sessionStorage.getItem('osura_sess')||'null')}catch(e){}
+let ui={tab:'dash',date:today(),shop:null,draft:null,rankP:'day',rankBy:'sales',rFrom:today(),rTo:today(),repMode:'day',lmode:'admin'};
+
+/* ---------- calculations ---------- */
+function recCalc(r){const pr=(r.pr&&r.pr.prices)||curPrices(),cur=curPrices(),per={};let sales=0;C().forEach(c=>{const p=pr[c.k]!=null?pr[c.k]:cur[c.k];per[c.k]=r2((+r.sold[c.k]||0)*p);sales+=per[c.k]});return{per,sales:r2(sales),pr:Object.assign({},cur,pr)}}
+const expTot=r=>r2((r.exp||[]).reduce((s,e)=>s+(+e.a||0),0));
+function sumTr(shop,pred){const o=zero();DB.transfers.forEach(t=>{if(t.shop===shop&&pred(t.date))C().forEach(c=>o[c.k]+=+t.qty[c.k]||0)});return o}
+function sumSold(shop,pred){const o=zero();Object.values(DB.days).forEach(r=>{if(r.shop===shop&&pred(r.date))C().forEach(c=>o[c.k]+=+r.sold[c.k]||0)});return o}
+function stk(shop,date){const trB=sumTr(shop,d=>d<date),trD=sumTr(shop,d=>d===date),sB=sumSold(shop,d=>d<date),sD=sumSold(shop,d=>d===date);
+ const open={},recv={},sold={},close={};C().forEach(c=>{const k=c.k;open[k]=trB[k]-sB[k];recv[k]=trD[k];sold[k]=sD[k];close[k]=open[k]+recv[k]-sD[k]});return{open,recv,sold,close}}
+function agg(shop,from,to){
+ const tB=sumTr(shop,d=>d<from),sB=sumSold(shop,d=>d<from),recv=sumTr(shop,d=>d>=from&&d<=to),sold=zero(),amt=zero(),open={},close={};
+ let sales=0,exp=0;
+ Object.values(DB.days).forEach(r=>{if(r.shop===shop&&r.date>=from&&r.date<=to){const cc=recCalc(r);C().forEach(c=>{sold[c.k]+=+r.sold[c.k]||0;amt[c.k]+=cc.per[c.k]});sales+=cc.sales;exp+=expTot(r)}});
+ C().forEach(c=>{open[c.k]=tB[c.k]-sB[c.k];close[c.k]=open[c.k]+recv[c.k]-sold[c.k];amt[c.k]=r2(amt[c.k])});
+ sales=r2(sales);exp=r2(exp);
+ return{open,recv,sold,close,amt,sales,exp,bal:r2(sales-exp),openT:sumO(open),recvT:sumO(recv),soldT:sumO(sold),closeT:sumO(close)}}
+function range(){const d=ui.date,p=ui.rankP;if(p==='day')return[d,d];if(p==='month')return[d.slice(0,7)+'-01',d.slice(0,7)+'-31'];if(p==='year')return[d.slice(0,4)+'-01-01',d.slice(0,4)+'-12-31'];if(p==='all')return[MIN,MAX];return[ui.rFrom,ui.rTo]}
+function allAgg(from,to){return DB.shops.map(s=>Object.assign({shop:s},agg(s.id,from,to)))}
+function totals(rows){const t={open:zero(),recv:zero(),sold:zero(),close:zero(),amt:zero(),sales:0,exp:0,bal:0,openT:0,recvT:0,soldT:0,closeT:0};
+ rows.forEach(r=>{C().forEach(c=>{['open','recv','sold','close','amt'].forEach(f=>t[f][c.k]+=r[f][c.k])});t.sales+=r.sales;t.exp+=r.exp;['openT','recvT','soldT','closeT'].forEach(f=>t[f]+=r[f])});
+ t.sales=r2(t.sales);t.exp=r2(t.exp);t.bal=r2(t.sales-t.exp);return t}
+
+/* ---------- auth ---------- */
+function doLogin(){
+ if(ui.lmode==='admin'){const u=$('lu').value.trim().toLowerCase(),p=$('lp').value;
+  if(u===DB.settings.adminUser.toLowerCase()&&p===DB.settings.adminPass){S={role:'admin'};ui.tab='dash'}else return toast('Wrong username or password')}
+ else{const sh=DB.shops.find(s=>s.id===$('ls').value);if(sh&&$('lp').value===sh.pin){S={role:'shop',shop:sh.id};ui.tab='entry';ui.shop=sh.id;ui.draft=null}else return toast('Wrong shop PIN')}
+ sessionStorage.setItem('osura_sess',JSON.stringify(S));render()}
+function logout(){S=null;sessionStorage.removeItem('osura_sess');ui.draft=null;render()}
+function setL(m){ui.lmode=m;render()}
+
+/* ---------- shell ---------- */
+function render(){
+ if(!S){$('app').innerHTML=loginHTML();return}
+ $('app').innerHTML=headHTML()+navHTML()+'<main>'+viewHTML()+'</main>';
+ if(ui.tab==='entry')updateEntry();
+}
+function loginHTML(){
+ const a=ui.lmode==='admin';
+ return `<div class="login"><div class="card"><h2 style="text-align:center;color:var(--p)">${CO}</h2><p class="muted" style="text-align:center">Stock &amp; Sales Manager</p>
+ <div class="tabs"><button class="btn ${a?'':'o'}" onclick="setL('admin')">Admin</button><button class="btn ${a?'o':''}" onclick="setL('shop')">Shop</button></div>
+ ${a?`<label>Username</label><input id="lu" autocomplete="username"><br><br>`:`<label>Shop</label><select id="ls">${DB.shops.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select><br><br>`}
+ <label>${a?'Password':'Shop PIN'}</label><input id="lp" type="password" onkeydown="if(event.key==='Enter')doLogin()"><br><br>
+ <button class="btn" style="width:100%" onclick="doLogin()">Login</button></div></div>`}
+function headHTML(){return `<header><div><h1>${CO}</h1><small>${S.role==='admin'?'Admin Panel':'Shop: '+esc(shopName(S.shop))}</small></div><div style="text-align:right"><small id="clk"></small><button class="btn sm o" onclick="logout()" style="margin-top:4px">Logout</button></div></header>`}
+function navHTML(){
+ const t=S.role==='admin'?[['dash','Dashboard'],['entry','Shop Entry'],['transfer','Give Packets'],['rank','Ranking'],['report','Reports'],['settings','Settings']]:[['entry','Daily Entry'],['hist','My History']];
+ return `<div class="nav">${t.map(x=>`<button class="${ui.tab===x[0]?'on':''}" onclick="go('${x[0]}')">${x[1]}</button>`).join('')}</div>`}
+function go(t){ui.tab=t;if(t==='entry')ui.draft=null;render()}
+function viewHTML(){const t=ui.tab;
+ if(t==='dash')return dashV();if(t==='entry')return entryV();if(t==='transfer')return transferV();if(t==='rank')return rankV();if(t==='report')return reportV();if(t==='settings')return settingsV();if(t==='hist')return histV();return''}
+setInterval(()=>{const c=$('clk');if(c)c.textContent=new Date().toLocaleString('en-GB')},1000);
+
+/* ---------- dashboard ---------- */
+function dashV(){
+ const d=ui.date,rows=allAgg(d,d),t=totals(rows),all=totals(allAgg(MIN,MAX));
+ return `<div class="card"><div class="row"><div><label>Date</label><input type="date" value="${d}" onchange="ui.date=this.value;render()"></div></div>
+ <div class="grid g4">
+ <div class="stat s1">Stock received<b>${fqL(t.recvT)}</b></div><div class="stat s4">Sold<b>${fqL(t.soldT)}</b></div>
+ <div class="stat s3">Income<b>${rs(t.sales)}</b></div><div class="stat s2">Expenses<b>${rs(t.exp)}</b></div>
+ <div class="stat s5">Balance (net)<b>${rs(t.bal)}</b></div><div class="stat s6">Stock left<b>${fqL(t.closeT)}</b></div></div></div>
+ <div class="card"><h3>By category — ${d}</h3><div class="tw"><table><thead><tr><th>Category</th><th>Opening</th><th>Received</th><th>Sold</th><th>Income</th><th>Stock left</th></tr></thead><tbody>
+ ${C().map(c=>`<tr><td>${dot(c)}${esc(c.n)}</td><td>${fq(t.open[c.k])}</td><td>${fq(t.recv[c.k])}</td><td>${fq(t.sold[c.k])}</td><td>${rs(t.amt[c.k])}</td><td>${fq(t.close[c.k])}</td></tr>`).join('')}
+ <tr class="tot"><td>Total</td><td>${fq(t.openT)}</td><td>${fq(t.recvT)}</td><td>${fq(t.soldT)}</td><td>${rs(t.sales)}</td><td>${fq(t.closeT)}</td></tr></tbody></table></div></div>
+ <div class="card"><h3>Shops — ${d} <span class="muted">(click a shop to open)</span></h3><div class="grid g3">${rows.map(r=>`<div class="shopc" onclick="openShop('${r.shop.id}')"><b>${esc(r.shop.name)}</b>
+ <div class="muted">Received: ${fq(r.recvT)} &nbsp;|&nbsp; Sold: ${fq(r.soldT)}</div>
+ <div>Income: <b>${rs(r.sales)}</b> &nbsp; Exp: ${rs(r.exp)}</div>
+ <div>Balance: <b class="${cls(r.bal)}">${rs(r.bal)}</b></div>
+ <div class="muted">Stock left: <b>${fqL(r.closeT)}</b></div></div>`).join('')}</div></div>
+ <div class="card"><h3>All-time totals (all shops)</h3><div class="grid g4">
+ <div class="stat s1">Total income<b>${rs(all.sales)}</b></div><div class="stat s2">Total expenses<b>${rs(all.exp)}</b></div>
+ <div class="stat s3">Total balance<b>${rs(all.bal)}</b></div><div class="stat s6">Stock left (all shops)<b>${fqL(all.closeT)}</b></div></div></div>`}
+function openShop(id){ui.shop=id;ui.tab='entry';ui.draft=null;render()}
+
+/* ---------- daily entry ---------- */
+function curShop(){return S.role==='admin'?(ui.shop||DB.shops[0].id):S.shop}
+function ensureDraft(){const sh=curShop(),key=sh+'|'+ui.date;if(ui.draft&&ui.draft.shop===sh&&ui.draft.date===ui.date)return;
+ const r=DB.days[key];ui.draft=r?{shop:sh,date:ui.date,sold:Object.assign(zero(),r.sold),exp:JSON.parse(JSON.stringify(r.exp||[])),note:r.note||''}:{shop:sh,date:ui.date,sold:zero(),exp:[],note:''}}
+function entryV(){
+ ensureDraft();const sh=curShop(),dr=ui.draft,st=stk(sh,ui.date),isSaved=!!DB.days[sh+'|'+ui.date],cur=curPrices();
+ const av={};C().forEach(c=>av[c.k]=st.open[c.k]+st.recv[c.k]);
+ const pickers=S.role==='admin'?`<div><label>Shop</label><select onchange="ui.shop=this.value;ui.draft=null;render()">${DB.shops.map(s=>`<option value="${s.id}" ${s.id===sh?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:'';
+ return `<div class="card"><h2>${esc(shopName(sh))} — Daily Entry</h2>
+ <div class="row">${pickers}<div><label>Date</label><input type="date" value="${ui.date}" onchange="ui.date=this.value;ui.draft=null;render()"></div></div>
+ <label>Available stock (opening + received today)</label>
+ <div class="stk">${C().map(c=>`<div>${dot(c)}${esc(c.n)}<b>${fqL(av[c.k])}</b></div>`).join('')}<div style="background:#eef2ff">Total<b>${fqL(sumO(av))}</b></div></div>
+ <p class="muted">1 pack = ${PK()} guli. Price per guli: ${C().map(c=>dot(c)+esc(c.n)+' Rs.'+c.price).join(' &nbsp; ')} &nbsp;|&nbsp; ${isSaved?'<b style="color:var(--ok)">Saved</b>':'Not saved yet'}</p>
+ ${restockHTML(sh)}
+ <div class="tw"><table><thead><tr><th>Category</th><th>Opening</th><th>Received</th><th>Available</th><th>Sold today (packs + guli)</th><th>Sold (guli)</th><th>Income</th><th>Remaining</th></tr></thead><tbody>
+ ${C().map(c=>{const v=dr.sold[c.k]||0,p=Math.floor(v/PK()),g=v%PK();return `<tr id="tr_${c.k}"><td>${dot(c)}${esc(c.n)}</td><td>${fq(st.open[c.k])}</td><td>${fq(st.recv[c.k])}</td><td id="av_${c.k}" data-v="${av[c.k]}">${fq(av[c.k])}</td>
+ <td><div class="pq"><input type="number" min="0" step="1" placeholder="packs" id="ip_${c.k}" value="${p||''}" oninput="updateEntry()"><input type="number" min="0" step="1" placeholder="guli" id="ig_${c.k}" value="${g||''}" oninput="updateEntry()"></div></td>
+ <td id="tg_${c.k}">0</td><td id="am_${c.k}">-</td><td id="rm_${c.k}">-</td></tr>`}).join('')}
+ <tr class="tot"><td>Total</td><td colspan="4"></td><td id="t_q">0</td><td id="t_a">-</td><td id="t_r">-</td></tr></tbody></table></div></div>
+ <div class="card"><h3>Expenses</h3><div class="row"><div style="flex:2"><label>Description</label><input id="ex_d" placeholder="e.g. Transport"></div><div><label>Amount (Rs.)</label><input id="ex_a" type="number" min="0" step="0.01"></div><div style="flex:0"><button class="btn" onclick="addExp()">Add</button></div></div>
+ <div id="expList"></div></div>
+ <div class="card"><div class="grid g4"><div class="stat s1">Income<b id="sSales">-</b></div><div class="stat s2">Expenses<b id="sExp">-</b></div><div class="stat s3">Balance<b id="sBal">-</b></div><div class="stat s6">Stock left<b id="sRem">-</b></div></div>
+ <br><label>Note (optional)</label><input id="note" value="${esc(dr.note)}" oninput="ui.draft.note=this.value">
+ <div class="row" style="margin-top:14px"><button class="btn g" onclick="saveEntry()">Save day</button><button class="btn" onclick="pdfEntry()">Download PDF</button><button class="btn o" onclick="printEntry()">Print</button><button class="btn o" onclick="shareEntry()">Share</button></div></div>`}
+function restockHTML(sh){
+ const list=DB.transfers.filter(t=>t.shop===sh&&t.date===ui.date);
+ return `<div style="border:2px dashed var(--p);border-radius:12px;padding:12px;margin:12px 0;background:#f5f3ff"><b>+ Add new stock (restock) for ${esc(shopName(sh))} — ${ui.date}</b>
+ <p class="muted" style="margin:4px 0 8px">Enter packs / guli received for each category, then press "Add stock". It is added to this shop's stock; sales are deducted from it.</p>
+ <div class="tw"><table><thead><tr><th>Category</th><th>Packs</th><th>Guli</th></tr></thead><tbody>${C().map(c=>`<tr><td>${dot(c)}${esc(c.n)}</td><td><input type="number" min="0" step="1" id="rp_${c.k}"></td><td><input type="number" min="0" step="1" id="rg_${c.k}"></td></tr>`).join('')}</tbody></table></div>
+ <div class="row" style="margin:10px 0 0"><button class="btn g" onclick="addRestock()">Add stock</button></div>
+ ${list.length?`<div class="muted" style="margin-top:10px">Stock added on this date:</div><table><tbody>${list.map(t=>`<tr><td>${new Date(t.ts).toLocaleTimeString('en-GB')}</td><td style="text-align:left">${C().filter(c=>t.qty[c.k]).map(c=>esc(c.n)+' '+fq(t.qty[c.k])).join(', ')}</td><td style="width:70px"><button class="btn r sm" onclick="delRestock('${t.id}')">Delete</button></td></tr>`).join('')}</tbody></table>`:''}</div>`}
+function addRestock(){const sh=curShop(),q={};let tot=0;C().forEach(c=>{const p=Math.max(0,Math.floor(+$('rp_'+c.k).value||0)),g=Math.max(0,Math.floor(+$('rg_'+c.k).value||0));q[c.k]=p*PK()+g;tot+=q[c.k]});
+ if(!tot)return toast('Enter packs or guli to add');
+ DB.transfers.push({id:'t'+Date.now(),ts:Date.now(),date:ui.date,shop:sh,qty:q});persist();toast('Stock added to '+shopName(sh));render()}
+function delRestock(id){if(!confirm('Remove this added stock?'))return;DB.transfers=DB.transfers.filter(t=>t.id!==id);persist();render()}
+function updateEntry(){
+ const dr=ui.draft;if(!dr)return;const cur=curPrices();let q=0,a=0,rem=0,bad=false;
+ C().forEach(c=>{const p=Math.max(0,Math.floor(+$('ip_'+c.k).value||0)),g=Math.max(0,Math.floor(+$('ig_'+c.k).value||0)),v=p*PK()+g,av=+$('av_'+c.k).dataset.v,am=r2(v*cur[c.k]);dr.sold[c.k]=v;q+=v;a+=am;
+  $('tg_'+c.k).textContent=n0(v);$('am_'+c.k).textContent=rs(am);const rm=av-v;rem+=rm;$('rm_'+c.k).innerHTML=`<span class="${rm<0?'neg':''}">${fq(rm)}</span>`;
+  $('tr_'+c.k).className=rm<0?'warn':'';if(rm<0)bad=true});
+ a=r2(a);const e=r2(dr.exp.reduce((s,x)=>s+(+x.a||0),0));
+ $('t_q').textContent=n0(q);$('t_a').textContent=rs(a);$('t_r').textContent=fq(rem);
+ $('sSales').textContent=rs(a);$('sExp').textContent=rs(e);$('sBal').textContent=rs(a-e);$('sRem').textContent=fqL(rem);
+ const ex=$('expList');if(ex)ex.innerHTML=expHTML();dr._bad=bad}
+function expHTML(){const dr=ui.draft;if(!dr.exp.length)return '<p class="muted">No expenses added.</p>';
+ return `<table><tbody>${dr.exp.map((x,i)=>`<tr><td>${esc(x.d)}</td><td>${rs(x.a)}</td><td style="width:60px"><button class="btn r sm" onclick="delExp(${i})">X</button></td></tr>`).join('')}<tr class="tot"><td>Total</td><td>${rs(dr.exp.reduce((s,x)=>s+(+x.a||0),0))}</td><td></td></tr></tbody></table>`}
+function addExp(){const d=$('ex_d').value.trim(),a=+$('ex_a').value;if(!(a>0))return toast('Enter an amount');ui.draft.exp.push({d:d||'Expense',a:r2(a)});$('ex_d').value='';$('ex_a').value='';updateEntry()}
+function delExp(i){ui.draft.exp.splice(i,1);updateEntry()}
+function saveEntry(silent){
+ const dr=ui.draft;updateEntry();
+ if(dr._bad){toast('Sold quantity is more than the available stock');return false}
+ const key=dr.shop+'|'+dr.date;
+ DB.days[key]={shop:dr.shop,date:dr.date,sold:Object.assign({},dr.sold),exp:JSON.parse(JSON.stringify(dr.exp)),note:dr.note||'',pr:{prices:curPrices()},saved:Date.now()};
+ DB.days[key].sales=recCalc(DB.days[key]).sales;
+ persist();if(!silent){toast('Saved');render()}return true}
+function printEntry(){if(!saveEntry(true))return;doPrint(blocksHTML(shopDayBlocks(ui.draft.shop,ui.draft.date)));render()}
+function pdfEntry(){if(!saveEntry(true))return;dlPDF(shopDayBlocks(ui.draft.shop,ui.draft.date),pdfName(ui.draft.shop,ui.draft.date));render()}
+function shareEntry(){if(!saveEntry(true))return;sharePDF(shopDayBlocks(ui.draft.shop,ui.draft.date),pdfName(ui.draft.shop,ui.draft.date),shopDayText(ui.draft.shop,ui.draft.date));render()}
+const pdfName=(shop,date)=>'Osura-'+shopName(shop).replace(/\s+/g,'')+'-'+date+'.pdf';
+
+/* ---------- report models ---------- */
+function shopDayBlocks(shop,date){
+ const r=DB.days[shop+'|'+date]||{sold:{},exp:[]},cc=recCalc(r),st=stk(shop,date),e=expTot(r),pr=cc.pr;
+ const rows=C().map(c=>[c.n,fq(st.open[c.k]),fq(st.recv[c.k]),fq(st.open[c.k]+st.recv[c.k]),fq(st.sold[c.k]),rs(pr[c.k]),rs(cc.per[c.k]),fq(st.close[c.k])]);
+ rows.push(['TOTAL',fq(sumO(st.open)),fq(sumO(st.recv)),fq(sumO(st.open)+sumO(st.recv)),fq(sumO(st.sold)),'',rs(cc.sales),fq(sumO(st.close))]);
+ const B=[{t:'h1',s:CO},{t:'p',s:'Daily Report - '+shopName(shop)+' - '+date},{t:'p',s:stamp()+'   (1 pk = '+PK()+' guli, g = guli)'},
+  {t:'h2',s:'Stock & Sales'},{t:'table',head:['Category','Opening stock','Received','Available','Sold','Price/guli','Income','Stock left'],rows,tot:true},
+  {t:'h2',s:'Expenses'}];
+ if((r.exp||[]).length){B.push({t:'table',head:['Description','Amount'],rows:r.exp.map(x=>[x.d,rs(x.a)]).concat([['TOTAL EXPENSES',rs(e)]]),tot:true})}else B.push({t:'p',s:'No expenses'});
+ B.push({t:'h2',s:'Summary'},{t:'table',head:['Item','Amount'],rows:[['Total income (sales)',rs(cc.sales)],['Total expenses',rs(e)],['NET BALANCE',rs(cc.sales-e)],['Stock left',fqL(sumO(st.close))]],tot:true});
+ if(r.note)B.push({t:'p',s:'Note: '+r.note});
+ return B}
+function allBlocks(from,to,title){
+ const rows=allAgg(from,to).sort((a,b)=>b.sales-a.sales),t=totals(rows),label=from===to?from:(from===MIN?'All time':from+' to '+to),cur=curPrices();
+ const sr=rows.map((r,i)=>[String(i+1),r.shop.name,fq(r.openT),fq(r.recvT),fq(r.soldT),rs(r.sales),rs(r.exp),rs(r.bal),fq(r.closeT)]);
+ sr.push(['','TOTAL',fq(t.openT),fq(t.recvT),fq(t.soldT),rs(t.sales),rs(t.exp),rs(t.bal),fq(t.closeT)]);
+ const cr=C().map(c=>[c.n,fq(t.open[c.k]),fq(t.recv[c.k]),fq(t.sold[c.k]),rs(t.amt[c.k]),fq(t.close[c.k])]);
+ cr.push(['TOTAL',fq(t.openT),fq(t.recvT),fq(t.soldT),rs(t.sales),fq(t.closeT)]);
+ return [{t:'h1',s:CO},{t:'p',s:(title||'All Shops Report')+' - '+label},{t:'p',s:stamp()+'   (1 pk = '+PK()+' guli, g = guli)'},
+  {t:'h2',s:'By shop (ranked by income)'},{t:'table',head:['#','Shop','Opening stock','Received','Sold','Income','Expenses','Balance','Stock left'],rows:sr,tot:true},
+  {t:'h2',s:'By category (all shops)'},{t:'table',head:['Category','Opening stock','Received','Sold','Income','Stock left'],rows:cr,tot:true}]}
+function shopDayText(shop,date){
+ const r=DB.days[shop+'|'+date]||{sold:{},exp:[]},cc=recCalc(r),st=stk(shop,date),e=expTot(r);
+ return `${CO}\nDaily Report - ${shopName(shop)} - ${date}\n\n`+C().map(c=>`${c.n}: received ${fq(st.recv[c.k])}, sold ${fq(st.sold[c.k])} = ${rs(cc.per[c.k])}, left ${fq(st.close[c.k])}`).join('\n')+`\n\nIncome: ${rs(cc.sales)}\nExpenses: ${rs(e)}\nBalance: ${rs(cc.sales-e)}\nStock left: ${fqL(sumO(st.close))}`}
+function allText(from,to){const rows=allAgg(from,to).sort((a,b)=>b.sales-a.sales),t=totals(rows);
+ return `${CO}\nAll Shops Report ${from===to?from:from+' to '+to}\n\n`+rows.map((r,i)=>`${i+1}. ${r.shop.name}: income ${rs(r.sales)}, exp ${rs(r.exp)}, bal ${rs(r.bal)}, left ${fq(r.closeT)}`).join('\n')+`\n\nTOTAL income ${rs(t.sales)}\nExpenses ${rs(t.exp)}\nBalance ${rs(t.bal)}\nStock left ${fqL(t.closeT)}`}
+
+/* ---------- html / print / pdf / share ---------- */
+function blocksHTML(B){return '<div class="rep">'+B.map(b=>{
+ if(b.t==='h1')return `<h2>${esc(b.s)}</h2>`;
+ if(b.t==='p')return `<div class="sub">${esc(b.s)}</div>`;
+ if(b.t==='h2')return `<h3>${esc(b.s)}</h3>`;
+ if(b.t==='table')return `<div class="tw"><table><thead><tr>${b.head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map((r,i)=>`<tr class="${b.tot&&i===b.rows.length-1?'tot':''}">${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+ return''}).join('')+'</div>'}
+function doPrint(html){$('printArea').innerHTML=html;setTimeout(()=>window.print(),100)}
+function blocksPDF(B){
+ const W=842,H=595,M=30,pages=[];let cur,y;
+ const np=()=>{cur=[];pages.push(cur);y=H-M};
+ const pe=s=>String(s).replace(/[\\()]/g,m=>'\\'+m).replace(/[^\x20-\x7e]/g,'?');
+ const T=(x,yy,s,sz,b)=>cur.push(`BT /${b?'F2':'F1'} ${sz} Tf ${x.toFixed(1)} ${yy.toFixed(1)} Td (${pe(s)}) Tj ET`);
+ const tw=(s,sz)=>String(s).length*sz*0.55;
+ np();
+ B.forEach(b=>{
+  if(b.t==='h1'){T(M,y-14,b.s,16,1);y-=26}
+  else if(b.t==='p'){T(M,y-10,b.s,9,0);y-=14}
+  else if(b.t==='h2'){y-=8;if(y<M+60)np();T(M,y-12,b.s,11,1);y-=20}
+  else if(b.t==='table'){
+   const sz=9,rh=16;
+   let w=b.head.map((h,i)=>Math.max(tw(h,sz),...b.rows.map(r=>tw(r[i],sz)))+14);
+   const sum=w.reduce((a,c)=>a+c,0),avail=W-2*M;if(sum>avail)w=w.map(x=>x*avail/sum);
+   const tot=w.reduce((a,c)=>a+c,0);
+   const cell=(x,i,s,bold)=>T(i?x+w[i]-tw(s,sz)-5:x+4,y-11,s,sz,bold);
+   const head=()=>{cur.push(`0.9 g ${M} ${y-rh} ${tot.toFixed(1)} ${rh} re f 0 g`);let x=M;b.head.forEach((h,i)=>{cell(x,i,h,1);x+=w[i]});y-=rh};
+   if(y<M+70)np();head();
+   b.rows.forEach((r,ri)=>{if(y-rh<M){np();head()}const bold=b.tot&&ri===b.rows.length-1;let x=M;r.forEach((c,i)=>{cell(x,i,c,bold);x+=w[i]});cur.push(`0.8 G ${M} ${y-rh} m ${(M+tot).toFixed(1)} ${y-rh} l S`);y-=rh});
+   y-=6}
+ });
+ pages.forEach((p,i)=>{cur=p;T(W-M-60,14,'Page '+(i+1)+' of '+pages.length,8,0)});
+ const objs=[],add=s=>{objs.push(s);return objs.length};
+ add('<< /Type /Catalog /Pages 2 0 R >>');add('');
+ add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+ const kids=[];
+ pages.forEach(p=>{const c=p.join('\n'),ci=add(`<< /Length ${c.length} >>\nstream\n${c}\nendstream`),pi=add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${ci} 0 R >>`);kids.push(pi+' 0 R')});
+ objs[1]=`<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${kids.length} >>`;
+ let out='%PDF-1.4\n';const off=[];
+ objs.forEach((o,i)=>{off.push(out.length);out+=`${i+1} 0 obj\n${o}\nendobj\n`});
+ const x=out.length;
+ out+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`+off.map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+`trailer\n<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF`;
+ return new Blob([out],{type:'application/pdf'})}
+function dlPDF(B,name){const bl=blocksPDF(B),a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=name;document.body.appendChild(a);a.click();a.remove();toast('PDF downloaded')}
+async function sharePDF(B,name,txt){
+ const bl=blocksPDF(B),f=new File([bl],name,{type:'application/pdf'});
+ try{if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}}catch(e){if(e&&e.name==='AbortError')return}
+ dlPDF(B,name);shareText(txt,name)}
+function shareText(txt,title){if(navigator.share){navigator.share({title:title,text:txt}).catch(()=>{})}else{window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank')}}
+
+/* ---------- reports tab ---------- */
+function repBlocks(){const m=ui.repMode,sh=ui.shop||DB.shops[0].id;return m==='shop'?shopDayBlocks(sh,ui.date):(m==='range'?allBlocks(ui.rFrom,ui.rTo):allBlocks(ui.date,ui.date))}
+function repName(){const m=ui.repMode,sh=ui.shop||DB.shops[0].id;return m==='shop'?pdfName(sh,ui.date):(m==='range'?`Osura-AllShops-${ui.rFrom}_to_${ui.rTo}.pdf`:`Osura-AllShops-${ui.date}.pdf`)}
+function repText(){const m=ui.repMode,sh=ui.shop||DB.shops[0].id;return m==='shop'?shopDayText(sh,ui.date):(m==='range'?allText(ui.rFrom,ui.rTo):allText(ui.date,ui.date))}
+function reportV(){
+ const m=ui.repMode,sh=ui.shop||DB.shops[0].id;
+ return `<div class="card"><h2>Reports</h2><div class="row">
+ <div><label>Report</label><select onchange="ui.repMode=this.value;render()"><option value="day" ${m==='day'?'selected':''}>All shops — one day</option><option value="range" ${m==='range'?'selected':''}>All shops — date range</option><option value="shop" ${m==='shop'?'selected':''}>One shop — one day</option></select></div>
+ ${m==='shop'?`<div><label>Shop</label><select onchange="ui.shop=this.value;render()">${DB.shops.map(s=>`<option value="${s.id}" ${s.id===sh?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:''}
+ ${m==='range'?`<div><label>From</label><input type="date" value="${ui.rFrom}" onchange="ui.rFrom=this.value;render()"></div><div><label>To</label><input type="date" value="${ui.rTo}" onchange="ui.rTo=this.value;render()"></div>`:`<div><label>Date</label><input type="date" value="${ui.date}" onchange="ui.date=this.value;render()"></div>`}
+ </div><div class="row"><button class="btn" onclick="dlPDF(repBlocks(),repName())">Download PDF</button><button class="btn o" onclick="doPrint(blocksHTML(repBlocks()))">Print</button><button class="btn o" onclick="sharePDF(repBlocks(),repName(),repText())">Share</button></div>${blocksHTML(repBlocks())}</div>`}
+
+/* ---------- ranking ---------- */
+function rankV(){
+ const[f,t]=range(),rows=allAgg(f,t),by=ui.rankBy;rows.sort((a,b)=>b[by]-a[by]);const mx=Math.max(1,...rows.map(r=>Math.abs(r[by])));
+ const P=ui.rankP;
+ return `<div class="card"><h2>Shop Ranking</h2><div class="row">
+ <div><label>Period</label><select onchange="ui.rankP=this.value;render()">${[['day','Selected day'],['month','Month of selected date'],['year','Year of selected date'],['all','All time'],['range','Custom range']].map(x=>`<option value="${x[0]}" ${P===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>
+ ${P==='range'?`<div><label>From</label><input type="date" value="${ui.rFrom}" onchange="ui.rFrom=this.value;render()"></div><div><label>To</label><input type="date" value="${ui.rTo}" onchange="ui.rTo=this.value;render()"></div>`:`<div><label>Date</label><input type="date" value="${ui.date}" onchange="ui.date=this.value;render()"></div>`}
+ <div><label>Rank by</label><select onchange="ui.rankBy=this.value;render()"><option value="sales" ${by==='sales'?'selected':''}>Income (sales)</option><option value="bal" ${by==='bal'?'selected':''}>Balance (net)</option><option value="soldT" ${by==='soldT'?'selected':''}>Guli sold</option></select></div></div>
+ <div class="tw"><table><thead><tr><th>Rank</th><th>Shop</th><th>Sold</th><th>Income</th><th>Expenses</th><th>Balance</th><th>Stock left</th><th style="width:22%"></th></tr></thead><tbody>
+ ${rows.map((r,i)=>`<tr><td>${['🥇','🥈','🥉'][i]||i+1}</td><td>${esc(r.shop.name)}</td><td>${fq(r.soldT)}</td><td>${rs(r.sales)}</td><td>${rs(r.exp)}</td><td class="${cls(r.bal)}">${rs(r.bal)}</td><td>${fq(r.closeT)}</td><td><div class="bar" style="width:${Math.max(2,Math.abs(r[by])/mx*100)}%"></div></td></tr>`).join('')}</tbody></table></div>
+ <div class="row" style="margin-top:12px"><button class="btn" onclick="dlPDF(allBlocks(...range(),'Ranking Report'),'Osura-Ranking-'+range()[0]+'.pdf')">Download PDF</button><button class="btn o" onclick="doPrint(blocksHTML(allBlocks(...range(),'Ranking Report')))">Print</button><button class="btn o" onclick="shareText(allText(...range()),'Ranking')">Share</button></div></div>`}
+
+/* ---------- transfers ---------- */
+function transferV(){
+ const sh=ui.shop||DB.shops[0].id,list=DB.transfers.slice().sort((a,b)=>b.ts-a.ts).slice(0,60);
+ return `<div class="card"><h2>Give Packets to a Shop</h2><p class="muted">Enter packs and loose guli for each category (1 pack = ${PK()} guli). It is added to the shop's stock on that date.</p>
+ <div class="row"><div><label>Shop</label><select id="tr_shop">${DB.shops.map(x=>`<option value="${x.id}" ${x.id===sh?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+ <div><label>Date</label><input type="date" id="tr_date" value="${ui.date}"></div></div>
+ <div class="tw"><table><thead><tr><th>Category</th><th>Packs</th><th>Guli</th></tr></thead><tbody>${C().map(c=>`<tr><td>${dot(c)}${esc(c.n)}</td><td><input type="number" min="0" step="1" id="tp_${c.k}"></td><td><input type="number" min="0" step="1" id="tg_${c.k}"></td></tr>`).join('')}</tbody></table></div><br>
+ <button class="btn g" onclick="addTr()">Give to shop</button></div>
+ <div class="card"><h3>Current stock per shop</h3><div class="tw"><table><thead><tr><th>Shop</th>${C().map(c=>`<th>${esc(c.n)}</th>`).join('')}<th>Total</th></tr></thead><tbody>
+ ${DB.shops.map(x=>{const a=agg(x.id,MIN,MAX);return `<tr><td>${esc(x.name)}</td>${C().map(c=>`<td class="${a.close[c.k]<0?'neg':''}">${fq(a.close[c.k])}</td>`).join('')}<td><b>${fq(a.closeT)}</b></td></tr>`}).join('')}</tbody></table></div></div>
+ <div class="card"><h3>Recent transfers</h3><div class="tw"><table><thead><tr><th>Date</th><th>Shop</th>${C().map(c=>`<th>${esc(c.n)}</th>`).join('')}<th></th></tr></thead><tbody>
+ ${list.map(t=>`<tr><td>${t.date}</td><td>${esc(shopName(t.shop))}</td>${C().map(c=>`<td>${fq(t.qty[c.k]||0)}</td>`).join('')}<td><button class="btn r sm" onclick="delTr('${t.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="8">No transfers yet</td></tr>'}</tbody></table></div></div>`}
+function addTr(){const q={};let tot=0;C().forEach(c=>{const p=Math.max(0,Math.floor(+$('tp_'+c.k).value||0)),g=Math.max(0,Math.floor(+$('tg_'+c.k).value||0));q[c.k]=p*PK()+g;tot+=q[c.k]});if(!tot)return toast('Enter quantities');
+ DB.transfers.push({id:'t'+Date.now(),ts:Date.now(),date:$('tr_date').value,shop:$('tr_shop').value,qty:q});ui.shop=$('tr_shop').value;persist();toast('Given to '+shopName(ui.shop));render()}
+function delTr(id){if(!confirm('Delete this transfer? Shop stock will reduce.'))return;DB.transfers=DB.transfers.filter(t=>t.id!==id);persist();render()}
+
+/* ---------- shop history ---------- */
+function histV(){
+ const rows=Object.values(DB.days).filter(r=>r.shop===S.shop).sort((a,b)=>b.date.localeCompare(a.date)),a=agg(S.shop,MIN,MAX);
+ return `<div class="card"><h2>Current stock</h2><div class="stk">${C().map(c=>`<div>${dot(c)}${esc(c.n)}<b>${fqL(a.close[c.k])}</b></div>`).join('')}</div></div>
+ <div class="card"><h2>Saved days</h2><div class="tw"><table><thead><tr><th>Date</th><th>Sold</th><th>Income</th><th>Expenses</th><th>Balance</th><th></th></tr></thead><tbody>
+ ${rows.map(r=>{const c=recCalc(r),e=expTot(r);return `<tr><td>${r.date}</td><td>${fq(sumO(r.sold))}</td><td>${rs(c.sales)}</td><td>${rs(e)}</td><td class="${cls(c.sales-e)}">${rs(c.sales-e)}</td><td><button class="btn sm" onclick="ui.date='${r.date}';go('entry')">Open</button> <button class="btn sm o" onclick="dlPDF(shopDayBlocks('${S.shop}','${r.date}'),pdfName('${S.shop}','${r.date}'))">PDF</button></td></tr>`}).join('')||'<tr><td colspan="6">Nothing saved yet</td></tr>'}</tbody></table></div></div>`}
+
+/* ---------- settings ---------- */
+function settingsV(){const s=DB.settings;
+ return `<div class="card"><h2>Pack &amp; categories</h2><div class="row"><div style="max-width:220px"><label>Guli per pack</label><input type="number" id="st_pk" min="1" value="${s.pack}"></div></div>
+ <p class="muted">Price is per single guli. Categories can be added or renamed. Old saved days keep the prices they were saved with.</p>
+ ${C().map((c,i)=>`<div class="row"><div><label>Category name</label><input id="cn_${i}" value="${esc(c.n)}"></div><div><label>Price per guli (Rs.)</label><input type="number" step="0.01" id="cp_${i}" value="${c.price}"></div><div style="flex:0"><label>Colour</label><input type="color" id="cc_${i}" value="${c.h}" style="padding:2px;height:40px;width:60px"></div><div style="flex:0"><button class="btn r sm" onclick="delCat(${i})">Delete</button></div></div>`).join('')}
+ <div class="row"><button class="btn g" onclick="saveCats()">Save</button><button class="btn o" onclick="addCat()">+ Add category</button></div></div>
+ <div class="card"><h2>Shop PINs</h2><div class="grid g4">${DB.shops.map(x=>`<div><label>${esc(x.name)}</label><input id="pin_${x.id}" value="${esc(x.pin)}"></div>`).join('')}</div><br><button class="btn g" onclick="savePins()">Save PINs</button></div>
+ <div class="card"><h2>Admin login</h2><div class="row"><div><label>Username</label><input id="au" value="${esc(s.adminUser)}"></div><div><label>Password</label><input id="ap" value="${esc(s.adminPass)}"></div></div><button class="btn g" onclick="saveAdmin()">Save</button></div>
+ <div class="card"><h2>Backup</h2><p class="muted">Data is stored in this browser. Download a backup regularly. Use Restore to move data to another device.</p>
+ <div class="row"><button class="btn" onclick="backup()">Download backup</button><div><input type="file" id="rf" accept=".json" onchange="restore(this)"></div></div></div>`}
+function readCats(){const s=DB.settings;s.pack=Math.max(1,Math.floor(+$('st_pk').value||25));s.cats.forEach((c,i)=>{c.n=$('cn_'+i).value.trim()||c.n;c.price=+$('cp_'+i).value||0;c.h=$('cc_'+i).value})}
+function saveCats(){readCats();persist();toast('Saved');render()}
+function addCat(){readCats();DB.settings.cats.push({k:'c'+Date.now(),n:'New',h:'#607d8b',price:0});persist();render()}
+function delCat(i){readCats();const c=DB.settings.cats[i];const used=DB.transfers.some(t=>t.qty[c.k])||Object.values(DB.days).some(r=>r.sold[c.k]);if(used)return toast('This category has data, so it cannot be deleted');if(DB.settings.cats.length<2)return toast('Keep at least one category');if(!confirm('Delete '+c.n+'?'))return;DB.settings.cats.splice(i,1);persist();render()}
+function savePins(){DB.shops.forEach(x=>x.pin=$('pin_'+x.id).value||'1234');persist();toast('PINs saved')}
+function saveAdmin(){const u=$('au').value.trim(),p=$('ap').value;if(!u||!p)return toast('Cannot be empty');DB.settings.adminUser=u;DB.settings.adminPass=p;persist();toast('Admin login updated')}
+function backup(){const b=new Blob([JSON.stringify(DB)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='osura-backup-'+today()+'.json';a.click()}
+function restore(inp){const f=inp.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.settings||!d.settings.cats||!d.shops)throw 0;if(confirm('Replace ALL current data with this backup?')){DB=d;persist();toast('Restored');render()}}catch(e){toast('Invalid backup file')}};rd.readAsText(f)}
+
+render();
+</script>
+</body>
+</html>
