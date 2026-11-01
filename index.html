@@ -74,8 +74,8 @@ const MIN='0000-00-00',MAX='9999-99-99';
 function defDB(){return{v:2,
  settings:{pack:25,cats:[{k:'red',n:'Red',h:'#e53935',price:300},{k:'white',n:'White',h:'#bdbdbd',price:300},{k:'yellow',n:'Yellow',h:'#f9a825',price:250},{k:'green',n:'Green',h:'#2e7d32',price:350}],adminUser:'osura shop',adminPass:'Osura2026'},
  shops:SHOPS.map((n,i)=>({id:'s'+(i+1),name:n,pin:'1234'})),
- transfers:[],days:{}}}
-function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.settings&&d.settings.cats)return d}catch(e){}return defDB()}
+ transfers:[],days:{},log:[]}}
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.settings&&d.settings.cats){if(!d.log)d.log=[];return d}}catch(e){}return defDB()}
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){alert('Could not save to browser storage. Please download a backup.')}schedPush()}
 
 const $=id=>document.getElementById(id);
@@ -144,18 +144,21 @@ function canon(v){
 const J=x=>JSON.stringify(canon(x));
 function flat(db){const f={};f['settings']=J(db.settings);f['shops']=J(db.shops);
  db.transfers.forEach(t=>f['transfers/'+t.id]=J(t));
+ (db.log||[]).forEach(l=>f['log/'+l.id]=J(l));
  Object.keys(db.days).forEach(k=>f['days/'+k]=J(db.days[k]));return f}
 function remFlat(r){const f={};if(!r)return f;
  if(r.settings)f.settings=J(r.settings);if(r.shops)f.shops=J(r.shops);
  Object.keys(r.transfers||{}).forEach(k=>f['transfers/'+k]=J(r.transfers[k]));
+ Object.keys(r.log||{}).forEach(k=>f['log/'+k]=J(r.log[k]));
  Object.keys(r.days||{}).forEach(k=>f['days/'+k]=J(r.days[k]));return f}
-function buildDB(res){const d={v:2,settings:null,shops:null,transfers:[],days:{}};
+function buildDB(res){const d={v:2,settings:null,shops:null,transfers:[],days:{},log:[]};
  Object.keys(res).forEach(p=>{const v=JSON.parse(res[p]);
   if(p==='settings')d.settings=v;else if(p==='shops')d.shops=v;
   else if(p.indexOf('transfers/')===0)d.transfers.push(v);
+  else if(p.indexOf('log/')===0)d.log.push(v);
   else if(p.indexOf('days/')===0)d.days[p.slice(5)]=v});
  if(!d.settings)d.settings=DB.settings;if(!d.shops)d.shops=DB.shops;
- d.transfers.sort((a,b)=>(a.ts||0)-(b.ts||0));return d}
+ d.transfers.sort((a,b)=>(a.ts||0)-(b.ts||0));d.log.sort((a,b)=>(a.ts||0)-(b.ts||0));return d}
 async function fb(method,path,body){
  const url=FB+(path?'/'+path.split('/').map(encodeURIComponent).join('/'):'')+'.json';
  const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:body});
@@ -229,11 +232,11 @@ function loginHTML(){
  <button class="btn" style="width:100%" onclick="doLogin()">Login</button></div></div>`}
 function headHTML(){return `<header><div><h1>${CO}</h1><small>${S.role==='admin'?'Admin Panel':'Shop: '+esc(shopName(S.shop))}</small></div><div style="text-align:right"><small id="clk"></small><small id="sync">${esc(syncMsg)}</small><button class="btn sm o" onclick="syncNow()" style="margin-top:4px">Sync</button> <button class="btn sm o" onclick="logout()" style="margin-top:4px">Logout</button></div></header>`}
 function navHTML(){
- const t=S.role==='admin'?[['dash','Dashboard'],['entry','Shop Entry'],['transfer','Give Packets'],['rank','Ranking'],['report','Reports'],['settings','Settings']]:[['entry','Daily Entry'],['hist','My History']];
+ const t=S.role==='admin'?[['dash','Dashboard'],['entry','Shop Entry'],['transfer','Give Packets'],['details','Shop Details'],['rank','Ranking'],['report','Reports'],['log','Activity Log'],['settings','Settings']]:[['entry','Daily Entry'],['sum','My Summary'],['hist','My History']];
  return `<div class="nav">${t.map(x=>`<button class="${ui.tab===x[0]?'on':''}" onclick="go('${x[0]}')">${x[1]}</button>`).join('')}</div>`}
 function go(t){ui.tab=t;if(t==='entry')ui.draft=null;render()}
 function viewHTML(){const t=ui.tab;
- if(t==='dash')return dashV();if(t==='entry')return entryV();if(t==='transfer')return transferV();if(t==='rank')return rankV();if(t==='report')return reportV();if(t==='settings')return settingsV();if(t==='hist')return histV();return''}
+ if(t==='dash')return dashV();if(t==='entry')return entryV();if(t==='transfer')return transferV();if(t==='rank')return rankV();if(t==='report')return reportV();if(t==='settings')return settingsV();if(t==='hist')return histV();if(t==='details')return detailsV(ui.shop||DB.shops[0].id);if(t==='log')return logV();if(t==='sum')return sumV();return''}
 setInterval(()=>{const c=$('clk');if(c)c.textContent=new Date().toLocaleString('en-GB')},1000);
 
 /* ---------- dashboard ---------- */
@@ -257,41 +260,47 @@ function dashV(){
  <div class="stat s3">Total balance<b>${rs(all.bal)}</b></div><div class="stat s6">Stock left (all shops)<b>${fqL(all.closeT)}</b></div></div></div>`}
 function openShop(id){ui.shop=id;ui.tab='entry';ui.draft=null;render()}
 
+/* ---------- activity log / locking helpers ---------- */
+const who=()=>S.role==='admin'?'Admin':shopName(S.shop);
+const qtyText=q=>C().filter(c=>q[c.k]).map(c=>c.n+' '+fq(q[c.k])).join(', ');
+function addLog(act,shop,date,info,kind,prev){if(!DB.log)DB.log=[];DB.log.push({id:'l'+Date.now()+Math.floor(Math.random()*1000),ts:Date.now(),who:who(),act:act,shop:shop||'',date:date||'',info:info||'',kind:kind||'',prev:prev||null})}
+const isLocked=()=>!!S&&S.role==='shop'&&!!DB.days[curShop()+'|'+ui.date];
+
 /* ---------- daily entry ---------- */
 function curShop(){return S.role==='admin'?(ui.shop||DB.shops[0].id):S.shop}
 function ensureDraft(){const sh=curShop(),key=sh+'|'+ui.date;if(ui.draft&&ui.draft.shop===sh&&ui.draft.date===ui.date)return;
  const r=DB.days[key];ui.draft=r?{shop:sh,date:ui.date,sold:Object.assign(zero(),r.sold),exp:JSON.parse(JSON.stringify(r.exp||[])),note:r.note||''}:{shop:sh,date:ui.date,sold:zero(),exp:[],note:''}}
 function entryV(){
- ensureDraft();const sh=curShop(),dr=ui.draft,st=stk(sh,ui.date),isSaved=!!DB.days[sh+'|'+ui.date],cur=curPrices();
+ ensureDraft();const lk=isLocked(),dis=lk?'disabled':'',sh=curShop(),dr=ui.draft,st=stk(sh,ui.date),isSaved=!!DB.days[sh+'|'+ui.date],cur=curPrices();
  const av={};C().forEach(c=>av[c.k]=st.open[c.k]+st.recv[c.k]);
  const pickers=S.role==='admin'?`<div><label>Shop</label><select onchange="ui.shop=this.value;ui.draft=null;render()">${DB.shops.map(s=>`<option value="${s.id}" ${s.id===sh?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:'';
  return `<div class="card"><h2>${esc(shopName(sh))} — Daily Entry</h2>
- <div class="row">${pickers}<div><label>Date</label><input type="date" value="${ui.date}" onchange="ui.date=this.value;ui.draft=null;render()"></div></div>
+ <div class="row">${pickers}<div><label>Date</label><input type="date" value="${ui.date}" ${S.role==='shop'?'max="'+today()+'"':''} onchange="ui.date=this.value;ui.draft=null;render()"></div></div>
  <label>Available stock (opening + received today)</label>
  <div class="stk">${C().map(c=>`<div>${dot(c)}${esc(c.n)}<b>${fqL(av[c.k])}</b></div>`).join('')}<div style="background:#eef2ff">Total<b>${fqL(sumO(av))}</b></div></div>
  <p class="muted">1 pack = ${PK()} guli. Price per guli: ${C().map(c=>dot(c)+esc(c.n)+' Rs.'+c.price).join(' &nbsp; ')} &nbsp;|&nbsp; ${isSaved?'<b style="color:var(--ok)">Saved</b>':'Not saved yet'}</p>
- ${restockHTML(sh)}
+ ${lk?'<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:10px;margin:10px 0"><b>This day is saved and locked.</b> Only the admin can edit it.</div>':restockHTML(sh)}
  <div class="tw"><table><thead><tr><th>Category</th><th>Opening</th><th>Received</th><th>Available</th><th>Sold today (packs + guli)</th><th>Sold (guli)</th><th>Income</th><th>Remaining</th></tr></thead><tbody>
  ${C().map(c=>{const v=dr.sold[c.k]||0,p=Math.floor(v/PK()),g=v%PK();return `<tr id="tr_${c.k}"><td>${dot(c)}${esc(c.n)}</td><td>${fq(st.open[c.k])}</td><td>${fq(st.recv[c.k])}</td><td id="av_${c.k}" data-v="${av[c.k]}">${fq(av[c.k])}</td>
- <td><div class="pq"><input type="number" min="0" step="1" placeholder="packs" id="ip_${c.k}" value="${p||''}" oninput="updateEntry()"><input type="number" min="0" step="1" placeholder="guli" id="ig_${c.k}" value="${g||''}" oninput="updateEntry()"></div></td>
+ <td><div class="pq"><input type="number" min="0" step="1" placeholder="packs" id="ip_${c.k}" value="${p||''}" ${dis} oninput="updateEntry()"><input type="number" min="0" step="1" placeholder="guli" id="ig_${c.k}" value="${g||''}" ${dis} oninput="updateEntry()"></div></td>
  <td id="tg_${c.k}">0</td><td id="am_${c.k}">-</td><td id="rm_${c.k}">-</td></tr>`}).join('')}
  <tr class="tot"><td>Total</td><td colspan="4"></td><td id="t_q">0</td><td id="t_a">-</td><td id="t_r">-</td></tr></tbody></table></div></div>
- <div class="card"><h3>Expenses</h3><div class="row"><div style="flex:2"><label>Description</label><input id="ex_d" placeholder="e.g. Transport"></div><div><label>Amount (Rs.)</label><input id="ex_a" type="number" min="0" step="0.01"></div><div style="flex:0"><button class="btn" onclick="addExp()">Add</button></div></div>
+ <div class="card"><h3>Expenses</h3><div class="row"><div style="flex:2"><label>Description</label><input id="ex_d" placeholder="e.g. Transport" ${dis}></div><div><label>Amount (Rs.)</label><input id="ex_a" type="number" min="0" step="0.01" ${dis}></div><div style="flex:0"><button class="btn" onclick="addExp()" ${dis}>Add</button></div></div>
  <div id="expList"></div></div>
  <div class="card"><div class="grid g4"><div class="stat s1">Income<b id="sSales">-</b></div><div class="stat s2">Expenses<b id="sExp">-</b></div><div class="stat s3">Balance<b id="sBal">-</b></div><div class="stat s6">Stock left<b id="sRem">-</b></div></div>
- <br><label>Note (optional)</label><input id="note" value="${esc(dr.note)}" oninput="ui.draft.note=this.value">
- <div class="row" style="margin-top:14px"><button class="btn g" onclick="saveEntry()">Save day</button><button class="btn" onclick="pdfEntry()">Download PDF</button><button class="btn o" onclick="printEntry()">Print</button><button class="btn o" onclick="shareEntry()">Share</button></div></div>`}
+ <br><label>Note (optional)</label><input id="note" value="${esc(dr.note)}" ${dis} oninput="ui.draft.note=this.value">
+ <div class="row" style="margin-top:14px">${lk?'':'<button class="btn g" onclick="saveEntry()">Save day</button>'}<button class="btn" onclick="pdfEntry()">Download PDF</button><button class="btn o" onclick="printEntry()">Print</button><button class="btn o" onclick="shareEntry()">Share</button></div></div>`}
 function restockHTML(sh){
  const list=DB.transfers.filter(t=>t.shop===sh&&t.date===ui.date);
  return `<div style="border:2px dashed var(--p);border-radius:12px;padding:12px;margin:12px 0;background:#f5f3ff"><b>+ Add new stock (restock) for ${esc(shopName(sh))} — ${ui.date}</b>
  <p class="muted" style="margin:4px 0 8px">Enter packs / guli received for each category, then press "Add stock". It is added to this shop's stock; sales are deducted from it.</p>
  <div class="tw"><table><thead><tr><th>Category</th><th>Packs</th><th>Guli</th></tr></thead><tbody>${C().map(c=>`<tr><td>${dot(c)}${esc(c.n)}</td><td><input type="number" min="0" step="1" id="rp_${c.k}"></td><td><input type="number" min="0" step="1" id="rg_${c.k}"></td></tr>`).join('')}</tbody></table></div>
  <div class="row" style="margin:10px 0 0"><button class="btn g" onclick="addRestock()">Add stock</button></div>
- ${list.length?`<div class="muted" style="margin-top:10px">Stock added on this date:</div><table><tbody>${list.map(t=>`<tr><td>${new Date(t.ts).toLocaleTimeString('en-GB')}</td><td style="text-align:left">${C().filter(c=>t.qty[c.k]).map(c=>esc(c.n)+' '+fq(t.qty[c.k])).join(', ')}</td><td style="width:70px"><button class="btn r sm" onclick="delRestock('${t.id}')">Delete</button></td></tr>`).join('')}</tbody></table>`:''}</div>`}
-function addRestock(){const sh=curShop(),q={};let tot=0;C().forEach(c=>{const p=Math.max(0,Math.floor(+$('rp_'+c.k).value||0)),g=Math.max(0,Math.floor(+$('rg_'+c.k).value||0));q[c.k]=p*PK()+g;tot+=q[c.k]});
+ ${list.length?`<div class="muted" style="margin-top:10px">Stock added on this date:</div><table><tbody>${list.map(t=>`<tr><td>${new Date(t.ts).toLocaleTimeString('en-GB')}</td><td style="text-align:left">${C().filter(c=>t.qty[c.k]).map(c=>esc(c.n)+' '+fq(t.qty[c.k])).join(', ')}</td><td style="width:70px">${S.role==='admin'?`<button class="btn r sm" onclick="delRestock('${t.id}')">Delete</button>`:''}</td></tr>`).join('')}</tbody></table>`:''}</div>`}
+function addRestock(){if(isLocked())return toast('This day is locked');const sh=curShop(),q={};let tot=0;C().forEach(c=>{const p=Math.max(0,Math.floor(+$('rp_'+c.k).value||0)),g=Math.max(0,Math.floor(+$('rg_'+c.k).value||0));q[c.k]=p*PK()+g;tot+=q[c.k]});
  if(!tot)return toast('Enter packs or guli to add');
- DB.transfers.push({id:'t'+Date.now(),ts:Date.now(),date:ui.date,shop:sh,qty:q});persist();toast('Stock added to '+shopName(sh));render()}
-function delRestock(id){if(!confirm('Remove this added stock?'))return;DB.transfers=DB.transfers.filter(t=>t.id!==id);persist();render()}
+ const nt={id:'t'+Date.now(),ts:Date.now(),date:ui.date,shop:sh,qty:q};DB.transfers.push(nt);addLog('add-stock',sh,ui.date,qtyText(q),'transfer',null);persist();toast('Stock added to '+shopName(sh));render()}
+function delRestock(id){if(S.role!=='admin')return toast('Only admin can delete');if(!confirm('Remove this added stock?'))return;const old=DB.transfers.find(t=>t.id===id);if(old)addLog('del-stock',old.shop,old.date,qtyText(old.qty),'transfer',JSON.parse(JSON.stringify(old)));DB.transfers=DB.transfers.filter(t=>t.id!==id);persist();render()}
 function updateEntry(){
  const dr=ui.draft;if(!dr)return;const cur=curPrices();let q=0,a=0,rem=0,bad=false;
  C().forEach(c=>{const p=Math.max(0,Math.floor(+$('ip_'+c.k).value||0)),g=Math.max(0,Math.floor(+$('ig_'+c.k).value||0)),v=p*PK()+g,av=+$('av_'+c.k).dataset.v,am=r2(v*cur[c.k]);dr.sold[c.k]=v;q+=v;a+=am;
@@ -302,15 +311,16 @@ function updateEntry(){
  $('sSales').textContent=rs(a);$('sExp').textContent=rs(e);$('sBal').textContent=rs(a-e);$('sRem').textContent=fqL(rem);
  const ex=$('expList');if(ex)ex.innerHTML=expHTML();dr._bad=bad}
 function expHTML(){const dr=ui.draft;if(!dr.exp.length)return '<p class="muted">No expenses added.</p>';
- return `<table><tbody>${dr.exp.map((x,i)=>`<tr><td>${esc(x.d)}</td><td>${rs(x.a)}</td><td style="width:60px"><button class="btn r sm" onclick="delExp(${i})">X</button></td></tr>`).join('')}<tr class="tot"><td>Total</td><td>${rs(dr.exp.reduce((s,x)=>s+(+x.a||0),0))}</td><td></td></tr></tbody></table>`}
-function addExp(){const d=$('ex_d').value.trim(),a=+$('ex_a').value;if(!(a>0))return toast('Enter an amount');ui.draft.exp.push({d:d||'Expense',a:r2(a)});$('ex_d').value='';$('ex_a').value='';updateEntry()}
-function delExp(i){ui.draft.exp.splice(i,1);updateEntry()}
+ return `<table><tbody>${dr.exp.map((x,i)=>`<tr><td>${esc(x.d)}</td><td>${rs(x.a)}</td><td style="width:60px">${isLocked()?'':`<button class="btn r sm" onclick="delExp(${i})">X</button>`}</td></tr>`).join('')}<tr class="tot"><td>Total</td><td>${rs(dr.exp.reduce((s,x)=>s+(+x.a||0),0))}</td><td></td></tr></tbody></table>`}
+function addExp(){if(isLocked())return toast('This day is locked');const d=$('ex_d').value.trim(),a=+$('ex_a').value;if(!(a>0))return toast('Enter an amount');ui.draft.exp.push({d:d||'Expense',a:r2(a)});$('ex_d').value='';$('ex_a').value='';updateEntry()}
+function delExp(i){if(isLocked())return;ui.draft.exp.splice(i,1);updateEntry()}
 function saveEntry(silent){
- const dr=ui.draft;updateEntry();
+ const dr=ui.draft;if(isLocked())return true;if(S.role==='shop'&&dr.date>today()){toast('Cannot enter a future date');return false}updateEntry();
  if(dr._bad){toast('Sold quantity is more than the available stock');return false}
- const key=dr.shop+'|'+dr.date;
+ const key=dr.shop+'|'+dr.date,prevDay=DB.days[key]?JSON.parse(JSON.stringify(DB.days[key])):null;
  DB.days[key]={shop:dr.shop,date:dr.date,sold:Object.assign({},dr.sold),exp:JSON.parse(JSON.stringify(dr.exp)),note:dr.note||'',pr:{prices:curPrices()},saved:Date.now()};
  DB.days[key].sales=recCalc(DB.days[key]).sales;
+ {const nd=DB.days[key],inf='Sales '+rs(nd.sales)+', expenses '+rs(expTot(nd));if(!prevDay)addLog('save-day',dr.shop,dr.date,inf,'day',null);else if(J(prevDay.sold)!==J(nd.sold)||J(prevDay.exp)!==J(nd.exp)||(prevDay.note||'')!==(nd.note||''))addLog('edit-day',dr.shop,dr.date,'Old: sales '+rs(recCalc(prevDay).sales)+', exp '+rs(expTot(prevDay))+' -> New: '+inf,'day',prevDay)}
  persist();if(!silent){toast('Saved');render()}return true}
 function printEntry(){if(!saveEntry(true))return;doPrint(blocksHTML(shopDayBlocks(ui.draft.shop,ui.draft.date)));render()}
 function pdfEntry(){if(!saveEntry(true))return;dlPDF(shopDayBlocks(ui.draft.shop,ui.draft.date),pdfName(ui.draft.shop,ui.draft.date));render()}
@@ -430,15 +440,85 @@ function transferV(){
  <div class="card"><h3>Recent transfers</h3><div class="tw"><table><thead><tr><th>Date</th><th>Shop</th>${C().map(c=>`<th>${esc(c.n)}</th>`).join('')}<th></th></tr></thead><tbody>
  ${list.map(t=>`<tr><td>${t.date}</td><td>${esc(shopName(t.shop))}</td>${C().map(c=>`<td>${fq(t.qty[c.k]||0)}</td>`).join('')}<td><button class="btn r sm" onclick="delTr('${t.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="8">No transfers yet</td></tr>'}</tbody></table></div></div>`}
 function addTr(){const q={};let tot=0;C().forEach(c=>{const p=Math.max(0,Math.floor(+$('tp_'+c.k).value||0)),g=Math.max(0,Math.floor(+$('tg_'+c.k).value||0));q[c.k]=p*PK()+g;tot+=q[c.k]});if(!tot)return toast('Enter quantities');
- DB.transfers.push({id:'t'+Date.now(),ts:Date.now(),date:$('tr_date').value,shop:$('tr_shop').value,qty:q});ui.shop=$('tr_shop').value;persist();toast('Given to '+shopName(ui.shop));render()}
-function delTr(id){if(!confirm('Delete this transfer? Shop stock will reduce.'))return;DB.transfers=DB.transfers.filter(t=>t.id!==id);persist();render()}
+ {const nt={id:'t'+Date.now(),ts:Date.now(),date:$('tr_date').value,shop:$('tr_shop').value,qty:q};DB.transfers.push(nt);addLog('add-stock',nt.shop,nt.date,qtyText(q),'transfer',null)}ui.shop=$('tr_shop').value;persist();toast('Given to '+shopName(ui.shop));render()}
+function delTr(id){if(!confirm('Delete this transfer? Shop stock will reduce. (It can be restored from Activity Log)'))return;const old=DB.transfers.find(t=>t.id===id);if(old)addLog('del-stock',old.shop,old.date,qtyText(old.qty),'transfer',JSON.parse(JSON.stringify(old)));DB.transfers=DB.transfers.filter(t=>t.id!==id);persist();render()}
 
 /* ---------- shop history ---------- */
-function histV(){
+function histV(){return detailsV(S.shop)+histV0()}
+function histV0(){
  const rows=Object.values(DB.days).filter(r=>r.shop===S.shop).sort((a,b)=>b.date.localeCompare(a.date)),a=agg(S.shop,MIN,MAX);
  return `<div class="card"><h2>Current stock</h2><div class="stk">${C().map(c=>`<div>${dot(c)}${esc(c.n)}<b>${fqL(a.close[c.k])}</b></div>`).join('')}</div></div>
  <div class="card"><h2>Saved days</h2><div class="tw"><table><thead><tr><th>Date</th><th>Sold</th><th>Income</th><th>Expenses</th><th>Balance</th><th></th></tr></thead><tbody>
  ${rows.map(r=>{const c=recCalc(r),e=expTot(r);return `<tr><td>${r.date}</td><td>${fq(sumO(r.sold))}</td><td>${rs(c.sales)}</td><td>${rs(e)}</td><td class="${cls(c.sales-e)}">${rs(c.sales-e)}</td><td><button class="btn sm" onclick="ui.date='${r.date}';go('entry')">Open</button> <button class="btn sm o" onclick="dlPDF(shopDayBlocks('${S.shop}','${r.date}'),pdfName('${S.shop}','${r.date}'))">PDF</button></td></tr>`}).join('')||'<tr><td colspan="6">Nothing saved yet</td></tr>'}</tbody></table></div></div>`}
+
+/* ---------- shop details (day / month / year filter), summary, activity log ---------- */
+Object.assign(ui,{dP:'month',dD:today(),dM:today().slice(0,7),dY:today().slice(0,4),dF:today(),dT:today()});
+const addD=(d,n)=>{const x=new Date(d+'T00:00:00');x.setDate(x.getDate()+n);return x.toLocaleDateString('en-CA')};
+function dRange(){const p=ui.dP;if(p==='day')return[ui.dD,ui.dD];if(p==='month'){const m=ui.dM||today().slice(0,7);return[m+'-01',m+'-31']}if(p==='year'){const y=ui.dY||today().slice(0,4);return[y+'-01-01',y+'-12-31']}if(p==='all')return[MIN,MAX];return[ui.dF,ui.dT]}
+function shopDates(sh,f,t){const s=new Set();Object.values(DB.days).forEach(r=>{if(r.shop===sh&&r.date>=f&&r.date<=t)s.add(r.date)});DB.transfers.forEach(x=>{if(x.shop===sh&&x.date>=f&&x.date<=t)s.add(x.date)});return[...s].sort()}
+function shiftP(n){const p=ui.dP;
+ if(p==='day')ui.dD=addD(ui.dD,n);
+ else if(p==='month'){const a=(ui.dM||today().slice(0,7)).split('-').map(Number),d=new Date(a[0],a[1]-1+n,1);ui.dM=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
+ else if(p==='year')ui.dY=String((+ui.dY||new Date().getFullYear())+n);
+ render()}
+function detailBlocks(sh,f,t){
+ const label=f===MIN?'All time':(f===t?f:f+' to '+t),A=agg(sh,f,t),ds=shopDates(sh,f,t);
+ const nd=Object.values(DB.days).filter(r=>r.shop===sh&&r.date>=f&&r.date<=t).length;
+ const B=[{t:'h1',s:CO},{t:'p',s:'Shop Details - '+shopName(sh)+' - '+label},{t:'p',s:stamp()+'   (1 pk = '+PK()+' guli, g = guli)'}];
+ B.push({t:'h2',s:'Summary'},{t:'table',head:['Item','Value'],rows:[['Days recorded',String(nd)],['Total income (sales)',rs(A.sales)],['Total expenses',rs(A.exp)],['NET BALANCE',rs(A.bal)],['Guli sold',fqL(A.soldT)],['Stock left',fqL(A.closeT)]]});
+ if(ds.length){
+  const dr=ds.map(d=>{const a=agg(sh,d,d);return[d,fq(a.recvT),fq(a.soldT),rs(a.sales),rs(a.exp),rs(a.bal),fq(a.closeT)]});
+  dr.push(['TOTAL',fq(A.recvT),fq(A.soldT),rs(A.sales),rs(A.exp),rs(A.bal),fq(A.closeT)]);
+  B.push({t:'h2',s:'Day by day'},{t:'table',head:['Date','Received','Sold','Income','Expenses','Balance','Stock left'],rows:dr,tot:true});
+ }else B.push({t:'p',s:'No records in this period'});
+ const ms=[...new Set(ds.map(d=>d.slice(0,7)))];
+ if(ms.length>1){const mr=ms.map(m=>{const a=agg(sh,m+'-01',m+'-31');return[m,fq(a.recvT),fq(a.soldT),rs(a.sales),rs(a.exp),rs(a.bal),fq(a.closeT)]});
+  mr.push(['TOTAL',fq(A.recvT),fq(A.soldT),rs(A.sales),rs(A.exp),rs(A.bal),fq(A.closeT)]);
+  B.push({t:'h2',s:'Month by month'},{t:'table',head:['Month','Received','Sold','Income','Expenses','Balance','Stock left'],rows:mr,tot:true})}
+ const cr=C().map(c=>[c.n,fq(A.open[c.k]),fq(A.recv[c.k]),fq(A.sold[c.k]),rs(A.amt[c.k]),fq(A.close[c.k])]);
+ cr.push(['TOTAL',fq(A.openT),fq(A.recvT),fq(A.soldT),rs(A.sales),fq(A.closeT)]);
+ B.push({t:'h2',s:'By category'},{t:'table',head:['Category','Opening stock','Received','Sold','Income','Stock left'],rows:cr,tot:true});
+ return B}
+function dtl(m){const sh=S.role==='admin'?(ui.shop||DB.shops[0].id):S.shop,r=dRange(),f=r[0],t=r[1],B=detailBlocks(sh,f,t),fn='Osura-'+shopName(sh).replace(/\s+/g,'')+'-'+(f===MIN?'AllTime':(f===t?f:f+'_to_'+t))+'.pdf';
+ if(m==='pdf')dlPDF(B,fn);else if(m==='print')doPrint(blocksHTML(B));
+ else{const A=agg(sh,f,t);sharePDF(B,fn,CO+'\n'+shopName(sh)+' '+(f===MIN?'All time':f+' to '+t)+'\nIncome: '+rs(A.sales)+'\nExpenses: '+rs(A.exp)+'\nBalance: '+rs(A.bal)+'\nStock left: '+fqL(A.closeT))}}
+function detailsV(sh){
+ const adm=S.role==='admin',P=ui.dP,r=dRange(),f=r[0],t=r[1],A=agg(sh,f,t),B=detailBlocks(sh,f,t);
+ const sel=[['day','Day'],['month','Month'],['year','Year'],['all','All time'],['range','Custom range']];
+ const mx=adm?'':'max="'+today()+'"';
+ let ctl='';
+ if(P==='day')ctl=`<div><label>Date</label><input type="date" value="${ui.dD}" ${mx} onchange="ui.dD=this.value||ui.dD;render()"></div>`;
+ else if(P==='month')ctl=`<div><label>Month</label><input type="month" value="${ui.dM}" onchange="ui.dM=this.value||ui.dM;render()"></div>`;
+ else if(P==='year')ctl=`<div><label>Year</label><input type="number" min="2000" max="2100" value="${ui.dY}" onchange="ui.dY=this.value||ui.dY;render()"></div>`;
+ else if(P==='range')ctl=`<div><label>From</label><input type="date" value="${ui.dF}" onchange="ui.dF=this.value||ui.dF;render()"></div><div><label>To</label><input type="date" value="${ui.dT}" onchange="ui.dT=this.value||ui.dT;render()"></div>`;
+ const nav=(P==='day'||P==='month'||P==='year')?`<div style="flex:0;display:flex;gap:6px"><button class="btn o" onclick="shiftP(-1)">&lt; Prev</button><button class="btn o" onclick="shiftP(1)">Next &gt;</button></div>`:'';
+ const pick=adm?`<div><label>Shop</label><select onchange="ui.shop=this.value;render()">${DB.shops.map(x=>`<option value="${x.id}" ${x.id===sh?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>`:'';
+ return `<div class="card"><h2>${adm?'Shop Details':'Report by day / month / year'} — ${esc(shopName(sh))}</h2>
+ <div class="row">${pick}<div><label>Period</label><select onchange="ui.dP=this.value;render()">${sel.map(x=>`<option value="${x[0]}" ${P===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>${ctl}${nav}</div>
+ <div class="grid g4" style="margin-bottom:12px"><div class="stat s3">Income<b>${rs(A.sales)}</b></div><div class="stat s2">Expenses<b>${rs(A.exp)}</b></div><div class="stat s5">Balance<b>${rs(A.bal)}</b></div><div class="stat s4">Sold<b>${fqL(A.soldT)}</b></div><div class="stat s6">Stock left<b>${fqL(A.closeT)}</b></div></div>
+ <div class="row"><button class="btn" onclick="dtl('pdf')">Download PDF</button><button class="btn o" onclick="dtl('print')">Print</button><button class="btn o" onclick="dtl('share')">Share</button></div>
+ ${blocksHTML(B)}</div>`}
+function sumV(){
+ const sh=S.shop,td=today(),m=td.slice(0,7),T=agg(sh,td,td),M=agg(sh,m+'-01',m+'-31'),all=agg(sh,MIN,MAX),saved=!!DB.days[sh+'|'+td];
+ let best=null;shopDates(sh,m+'-01',m+'-31').filter(d=>DB.days[sh+'|'+d]).forEach(d=>{const a=agg(sh,d,d);if(!best||a.sales>best.s)best={d:d,s:a.sales}});
+ const l7=[];for(let i=0;i<7;i++){const d=addD(td,-i);l7.push([d,agg(sh,d,d)])}
+ return `<div class="card"><h2>${esc(shopName(sh))} — Summary</h2>
+ <p>${saved?'<b style="color:var(--ok)">Today is saved.</b>':'<b class="neg">Today is not saved yet.</b> Please enter the sales in Daily Entry.'}</p>
+ <h3>Today (${td})</h3><div class="grid g4"><div class="stat s1">Received<b>${fqL(T.recvT)}</b></div><div class="stat s4">Sold<b>${fqL(T.soldT)}</b></div><div class="stat s3">Income<b>${rs(T.sales)}</b></div><div class="stat s2">Expenses<b>${rs(T.exp)}</b></div></div></div>
+ <div class="card"><h3>This month (${m})</h3><div class="grid g4"><div class="stat s3">Income<b>${rs(M.sales)}</b></div><div class="stat s2">Expenses<b>${rs(M.exp)}</b></div><div class="stat s5">Balance<b>${rs(M.bal)}</b></div><div class="stat s4">Sold<b>${fqL(M.soldT)}</b></div></div>
+ ${best?`<p class="muted">Best day this month: <b>${best.d}</b> — ${rs(best.s)}</p>`:''}</div>
+ <div class="card"><h3>Stock now</h3><div class="stk">${C().map(c=>`<div>${dot(c)}${esc(c.n)}<b>${fqL(all.close[c.k])}</b></div>`).join('')}<div style="background:#eef2ff">Total<b>${fqL(all.closeT)}</b></div></div></div>
+ <div class="card"><h3>Last 7 days</h3><div class="tw"><table><thead><tr><th>Date</th><th>Sold</th><th>Income</th><th>Expenses</th><th>Balance</th><th>Status</th></tr></thead><tbody>
+ ${l7.map(x=>`<tr><td>${x[0]}</td><td>${fq(x[1].soldT)}</td><td>${rs(x[1].sales)}</td><td>${rs(x[1].exp)}</td><td class="${cls(x[1].bal)}">${rs(x[1].bal)}</td><td>${DB.days[sh+'|'+x[0]]?'Saved':'-'}</td></tr>`).join('')}</tbody></table></div></div>`}
+function logV(){
+ const L=(DB.log||[]).slice().sort((a,b)=>b.ts-a.ts).slice(0,300);
+ return `<div class="card"><h2>Activity Log</h2><p class="muted">Every save, edit and stock change is recorded here and never removed. Old values of edited days and deleted stock can be restored.</p><div class="tw"><table><thead><tr><th>Time</th><th>By</th><th>Action</th><th>Shop</th><th>Date</th><th>Details</th><th></th></tr></thead><tbody>
+ ${L.map(l=>`<tr><td>${new Date(l.ts).toLocaleString('en-GB')}</td><td>${esc(l.who)}</td><td>${esc(l.act)}</td><td>${esc(l.shop?shopName(l.shop):'')}</td><td>${esc(l.date)}</td><td style="text-align:left;white-space:normal">${esc(l.info)}</td><td>${l.prev&&!l.done?`<button class="btn sm o" onclick="restoreLog('${l.id}')">Restore old</button>`:(l.done?'<span class="muted">restored</span>':'')}</td></tr>`).join('')||'<tr><td colspan="7">No activity yet</td></tr>'}</tbody></table></div></div>`}
+function restoreLog(id){
+ const l=(DB.log||[]).find(x=>x.id===id);if(!l||!l.prev)return;if(!confirm('Restore the old data?'))return;
+ if(l.kind==='day'){const p=l.prev,key=p.shop+'|'+p.date,cur=DB.days[key];if(cur)addLog('restore-day',p.shop,p.date,'Restored a previous version','day',JSON.parse(JSON.stringify(cur)));DB.days[key]=JSON.parse(JSON.stringify(p))}
+ else if(l.kind==='transfer'){if(!DB.transfers.some(t=>t.id===l.prev.id)){DB.transfers.push(JSON.parse(JSON.stringify(l.prev)));addLog('restore-stock',l.prev.shop,l.prev.date,qtyText(l.prev.qty),'','')}}
+ l.done=true;persist();toast('Restored');render()}
 
 /* ---------- settings ---------- */
 function settingsV(){const s=DB.settings;
@@ -457,7 +537,7 @@ function delCat(i){readCats();const c=DB.settings.cats[i];const used=DB.transfer
 function savePins(){DB.shops.forEach(x=>x.pin=$('pin_'+x.id).value||'1234');persist();toast('PINs saved')}
 function saveAdmin(){const u=$('au').value.trim(),p=$('ap').value;if(!u||!p)return toast('Cannot be empty');DB.settings.adminUser=u;DB.settings.adminPass=p;persist();toast('Admin login updated')}
 function backup(){const b=new Blob([JSON.stringify(DB)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='osura-backup-'+today()+'.json';a.click()}
-function restore(inp){const f=inp.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.settings||!d.settings.cats||!d.shops)throw 0;if(confirm('Replace ALL current data with this backup?')){DB=d;persist();toast('Restored');render()}}catch(e){toast('Invalid backup file')}};rd.readAsText(f)}
+function restore(inp){const f=inp.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.settings||!d.settings.cats||!d.shops)throw 0;if(confirm('Replace ALL current data with this backup?')){if(!d.log)d.log=[];DB=d;persist();toast('Restored');render()}}catch(e){toast('Invalid backup file')}};rd.readAsText(f)}
 
 render();
 cloudInit();
