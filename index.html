@@ -76,7 +76,7 @@ function defDB(){return{v:2,
  shops:SHOPS.map((n,i)=>({id:'s'+(i+1),name:n,pin:'1234'})),
  transfers:[],days:{}}}
 function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.settings&&d.settings.cats)return d}catch(e){}return defDB()}
-function persist(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){alert('Could not save to browser storage. Please download a backup.')}}
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){alert('Could not save to browser storage. Please download a backup.')}schedPush()}
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -123,8 +123,90 @@ function totals(rows){const t={open:zero(),recv:zero(),sold:zero(),close:zero(),
  rows.forEach(r=>{C().forEach(c=>{['open','recv','sold','close','amt'].forEach(f=>t[f][c.k]+=r[f][c.k])});t.sales+=r.sales;t.exp+=r.exp;['openT','recvT','soldT','closeT'].forEach(f=>t[f]+=r[f])});
  t.sales=r2(t.sales);t.exp=r2(t.exp);t.bal=r2(t.sales-t.exp);return t}
 
+/* ---------- cloud sync (Firebase Realtime Database, REST) ----------
+   Paste your Firebase Realtime Database URL below, e.g.
+   https://your-project-default-rtdb.firebaseio.com
+   Leave as is to keep working only on this device (old behaviour). */
+const FB_URL='PASTE_YOUR_FIREBASE_URL_HERE';
+const CLOUD=/^https:\/\//.test(FB_URL);
+const FB=FB_URL.replace(/\/+$/,'')+'/osura';
+const LASTK='osura_last_v1';
+let ready=false,pulling=null,pushing=false,pushT=null,LAST=null;
+let syncMsg=CLOUD?'Connecting...':'Cloud not set up - data on this device only';
+try{LAST=JSON.parse(localStorage.getItem(LASTK))}catch(e){}
+function saveLast(){try{localStorage.setItem(LASTK,JSON.stringify(LAST))}catch(e){}}
+function updSync(){const e=$('sync');if(e)e.textContent=syncMsg}
+const hh=s=>{let x=5381;for(let i=0;i<s.length;i++)x=((x*33)^s.charCodeAt(i))|0;return x+':'+s.length};
+function canon(v){
+ if(Array.isArray(v)){if(!v.length)return undefined;return v.map(x=>{const c=canon(x);return c===undefined?null:c})}
+ if(v&&typeof v==='object'){const o={};Object.keys(v).sort().forEach(k=>{const c=canon(v[k]);if(c!==undefined&&c!==null)o[k]=c});return o}
+ return v}
+const J=x=>JSON.stringify(canon(x));
+function flat(db){const f={};f['settings']=J(db.settings);f['shops']=J(db.shops);
+ db.transfers.forEach(t=>f['transfers/'+t.id]=J(t));
+ Object.keys(db.days).forEach(k=>f['days/'+k]=J(db.days[k]));return f}
+function remFlat(r){const f={};if(!r)return f;
+ if(r.settings)f.settings=J(r.settings);if(r.shops)f.shops=J(r.shops);
+ Object.keys(r.transfers||{}).forEach(k=>f['transfers/'+k]=J(r.transfers[k]));
+ Object.keys(r.days||{}).forEach(k=>f['days/'+k]=J(r.days[k]));return f}
+function buildDB(res){const d={v:2,settings:null,shops:null,transfers:[],days:{}};
+ Object.keys(res).forEach(p=>{const v=JSON.parse(res[p]);
+  if(p==='settings')d.settings=v;else if(p==='shops')d.shops=v;
+  else if(p.indexOf('transfers/')===0)d.transfers.push(v);
+  else if(p.indexOf('days/')===0)d.days[p.slice(5)]=v});
+ if(!d.settings)d.settings=DB.settings;if(!d.shops)d.shops=DB.shops;
+ d.transfers.sort((a,b)=>(a.ts||0)-(b.ts||0));return d}
+async function fb(method,path,body){
+ const url=FB+(path?'/'+path.split('/').map(encodeURIComponent).join('/'):'')+'.json';
+ const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:body});
+ if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}
+async function runBatch(ops){for(let i=0;i<ops.length;i+=20)await Promise.all(ops.slice(i,i+20).map(o=>o()))}
+function pull(){if(!CLOUD)return Promise.resolve(false);if(pulling)return pulling;pulling=doPull().finally(()=>{pulling=null});return pulling}
+async function doPull(){
+ try{
+  const rem=await fb('GET',''),rf=remFlat(rem),lf=flat(DB),first=!LAST,last=LAST||{},dflt=flat(defDB());
+  if(first){try{if(!localStorage.getItem(KEY+'_pre'))localStorage.setItem(KEY+'_pre',JSON.stringify(DB))}catch(e){}}
+  const res={},ops=[];let changed=false;
+  new Set(Object.keys(lf).concat(Object.keys(rf))).forEach(p=>{
+   const l=lf[p],r=rf[p],b=last[p];let take;
+   if(l===r)take='r';
+   else if(first){if(l===undefined)take='r';else if(r===undefined)take='l';else take=((p==='settings'||p==='shops')&&l!==dflt[p])?'l':'r'}
+   else if(l===undefined)take=(b!==undefined&&hh(r)===b)?'l':'r';
+   else if(r===undefined)take=(b!==undefined&&hh(l)===b)?'r':'l';
+   else take=(hh(l)===b)?'r':'l';
+   if(take==='r'){if(r!==undefined)res[p]=r;if(l!==r)changed=true}
+   else{if(l!==undefined){res[p]=l;ops.push(()=>fb('PUT',p,l))}else ops.push(()=>fb('DELETE',p))}
+  });
+  await runBatch(ops);
+  if(changed){DB=buildDB(res);try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){}}
+  const nl={};Object.keys(res).forEach(p=>nl[p]=hh(res[p]));LAST=nl;saveLast();
+  ready=true;syncMsg='Synced '+new Date().toLocaleTimeString('en-GB');updSync();return changed;
+ }catch(e){syncMsg=ready?'Offline - will retry':'Offline - showing data saved on this device';updSync();return false}}
+function schedPush(){if(!CLOUD)return;clearTimeout(pushT);pushT=setTimeout(push,600);if(ready){syncMsg='Saving...';updSync()}}
+async function push(){
+ if(!CLOUD||!ready)return;
+ if(pushing){schedPush();return}
+ pushing=true;
+ try{
+  const lf=flat(DB),last=LAST||{},ops=[];
+  Object.keys(lf).forEach(p=>{if(hh(lf[p])!==last[p])ops.push(()=>fb('PUT',p,lf[p]))});
+  Object.keys(last).forEach(p=>{if(!(p in lf))ops.push(()=>fb('DELETE',p))});
+  await runBatch(ops);
+  const nl={};Object.keys(lf).forEach(p=>nl[p]=hh(lf[p]));LAST=nl;saveLast();
+  syncMsg='Synced '+new Date().toLocaleTimeString('en-GB');
+ }catch(e){syncMsg='Offline - will retry';clearTimeout(pushT);pushT=setTimeout(push,15000)}
+ pushing=false;updSync()}
+async function syncNow(){if(!CLOUD)return;await push();const ch=await pull();
+ if(ch&&S){const a=document.activeElement;if(!(a&&/INPUT|SELECT|TEXTAREA/.test(a.tagName)))render()}}
+function cloudInit(){if(!CLOUD)return;
+ pull().then(ch=>{if(ch&&S)render();else updSync()});
+ setInterval(syncNow,30000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncNow()});
+ window.addEventListener('online',syncNow)}
+
 /* ---------- auth ---------- */
-function doLogin(){
+async function doLogin(){
+ if(CLOUD&&!ready){toast('Connecting to cloud...');await pull()}
  if(ui.lmode==='admin'){const u=$('lu').value.trim().toLowerCase(),p=$('lp').value;
   if(u===DB.settings.adminUser.toLowerCase()&&p===DB.settings.adminPass){S={role:'admin'};ui.tab='dash'}else return toast('Wrong username or password')}
  else{const sh=DB.shops.find(s=>s.id===$('ls').value);if(sh&&$('lp').value===sh.pin){S={role:'shop',shop:sh.id};ui.tab='entry';ui.shop=sh.id;ui.draft=null}else return toast('Wrong shop PIN')}
@@ -145,7 +227,7 @@ function loginHTML(){
  ${a?`<label>Username</label><input id="lu" autocomplete="username"><br><br>`:`<label>Shop</label><select id="ls">${DB.shops.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select><br><br>`}
  <label>${a?'Password':'Shop PIN'}</label><input id="lp" type="password" onkeydown="if(event.key==='Enter')doLogin()"><br><br>
  <button class="btn" style="width:100%" onclick="doLogin()">Login</button></div></div>`}
-function headHTML(){return `<header><div><h1>${CO}</h1><small>${S.role==='admin'?'Admin Panel':'Shop: '+esc(shopName(S.shop))}</small></div><div style="text-align:right"><small id="clk"></small><button class="btn sm o" onclick="logout()" style="margin-top:4px">Logout</button></div></header>`}
+function headHTML(){return `<header><div><h1>${CO}</h1><small>${S.role==='admin'?'Admin Panel':'Shop: '+esc(shopName(S.shop))}</small></div><div style="text-align:right"><small id="clk"></small><small id="sync">${esc(syncMsg)}</small><button class="btn sm o" onclick="syncNow()" style="margin-top:4px">Sync</button> <button class="btn sm o" onclick="logout()" style="margin-top:4px">Logout</button></div></header>`}
 function navHTML(){
  const t=S.role==='admin'?[['dash','Dashboard'],['entry','Shop Entry'],['transfer','Give Packets'],['rank','Ranking'],['report','Reports'],['settings','Settings']]:[['entry','Daily Entry'],['hist','My History']];
  return `<div class="nav">${t.map(x=>`<button class="${ui.tab===x[0]?'on':''}" onclick="go('${x[0]}')">${x[1]}</button>`).join('')}</div>`}
@@ -366,7 +448,7 @@ function settingsV(){const s=DB.settings;
  <div class="row"><button class="btn g" onclick="saveCats()">Save</button><button class="btn o" onclick="addCat()">+ Add category</button></div></div>
  <div class="card"><h2>Shop PINs</h2><div class="grid g4">${DB.shops.map(x=>`<div><label>${esc(x.name)}</label><input id="pin_${x.id}" value="${esc(x.pin)}"></div>`).join('')}</div><br><button class="btn g" onclick="savePins()">Save PINs</button></div>
  <div class="card"><h2>Admin login</h2><div class="row"><div><label>Username</label><input id="au" value="${esc(s.adminUser)}"></div><div><label>Password</label><input id="ap" value="${esc(s.adminPass)}"></div></div><button class="btn g" onclick="saveAdmin()">Save</button></div>
- <div class="card"><h2>Backup</h2><p class="muted">Data is stored in this browser. Download a backup regularly. Use Restore to move data to another device.</p>
+ <div class="card"><h2>Backup</h2><p class="muted">${CLOUD?'Data is saved to the cloud and shared by all devices ('+esc(syncMsg)+'). ':'Data is stored in this browser. '}Download a backup regularly. Use Restore to move data to another device.</p>
  <div class="row"><button class="btn" onclick="backup()">Download backup</button><div><input type="file" id="rf" accept=".json" onchange="restore(this)"></div></div></div>`}
 function readCats(){const s=DB.settings;s.pack=Math.max(1,Math.floor(+$('st_pk').value||25));s.cats.forEach((c,i)=>{c.n=$('cn_'+i).value.trim()||c.n;c.price=+$('cp_'+i).value||0;c.h=$('cc_'+i).value})}
 function saveCats(){readCats();persist();toast('Saved');render()}
@@ -378,6 +460,7 @@ function backup(){const b=new Blob([JSON.stringify(DB)],{type:'application/json'
 function restore(inp){const f=inp.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.settings||!d.settings.cats||!d.shops)throw 0;if(confirm('Replace ALL current data with this backup?')){DB=d;persist();toast('Restored');render()}}catch(e){toast('Invalid backup file')}};rd.readAsText(f)}
 
 render();
+cloudInit();
 </script>
 </body>
 </html>
