@@ -135,6 +135,7 @@ let ready=false,pulling=null,pushing=false,pushT=null,LAST=null;
 let syncMsg=CLOUD?'Connecting...':'Cloud not set up - data on this device only';
 try{LAST=JSON.parse(localStorage.getItem(LASTK))}catch(e){}
 function saveLast(){try{localStorage.setItem(LASTK,JSON.stringify(LAST))}catch(e){}}
+function errMsg(e,rd){const m=String(e&&e.message||e);if(/HTTP 40[13]/.test(m))return 'Cloud blocked ('+m+') - set Firebase Rules to allow read and write';if(/HTTP 404/.test(m))return 'Cloud URL looks wrong ('+m+')';return(rd?'Offline - will retry':'Offline - showing data saved on this device')+' ['+m+']'}
 function updSync(){const e=$('sync');if(e)e.textContent=syncMsg}
 const hh=s=>{let x=5381;for(let i=0;i<s.length;i++)x=((x*33)^s.charCodeAt(i))|0;return x+':'+s.length};
 function canon(v){
@@ -184,7 +185,7 @@ async function doPull(){
   if(changed){DB=buildDB(res);try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){}}
   const nl={};Object.keys(res).forEach(p=>nl[p]=hh(res[p]));LAST=nl;saveLast();
   ready=true;syncMsg='Synced '+new Date().toLocaleTimeString('en-GB');updSync();return changed;
- }catch(e){syncMsg=ready?'Offline - will retry':'Offline - showing data saved on this device';updSync();return false}}
+ }catch(e){syncMsg=errMsg(e,ready);updSync();return false}}
 function schedPush(){if(!CLOUD)return;clearTimeout(pushT);pushT=setTimeout(push,600);if(ready){syncMsg='Saving...';updSync()}}
 async function push(){
  if(!CLOUD||!ready)return;
@@ -197,7 +198,7 @@ async function push(){
   await runBatch(ops);
   const nl={};Object.keys(lf).forEach(p=>nl[p]=hh(lf[p]));LAST=nl;saveLast();
   syncMsg='Synced '+new Date().toLocaleTimeString('en-GB');
- }catch(e){syncMsg='Offline - will retry';clearTimeout(pushT);pushT=setTimeout(push,15000)}
+ }catch(e){syncMsg=errMsg(e,true);clearTimeout(pushT);pushT=setTimeout(push,15000)}
  pushing=false;updSync()}
 async function syncNow(){if(!CLOUD)return;await push();const ch=await pull();
  if(ch&&S){const a=document.activeElement;if(!(a&&/INPUT|SELECT|TEXTAREA/.test(a.tagName)))render()}}
@@ -225,7 +226,7 @@ function render(){
 }
 function loginHTML(){
  const a=ui.lmode==='admin';
- return `<div class="login"><div class="card"><h2 style="text-align:center;color:var(--p)">${CO}</h2><p class="muted" style="text-align:center">Stock &amp; Sales Manager</p>
+ return `<div class="login"><div class="card"><h2 style="text-align:center;color:var(--p)">${CO}</h2><p class="muted" style="text-align:center">Stock &amp; Sales Manager</p><p class="muted" id="sync" style="text-align:center;font-size:12px">${esc(syncMsg)}</p>
  <div class="tabs"><button class="btn ${a?'':'o'}" onclick="setL('admin')">Admin</button><button class="btn ${a?'o':''}" onclick="setL('shop')">Shop</button></div>
  ${a?`<label>Username</label><input id="lu" autocomplete="username"><br><br>`:`<label>Shop</label><select id="ls">${DB.shops.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select><br><br>`}
  <label>${a?'Password':'Shop PIN'}</label><input id="lp" type="password" onkeydown="if(event.key==='Enter')doLogin()"><br><br>
